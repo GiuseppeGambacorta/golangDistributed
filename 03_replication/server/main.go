@@ -134,7 +134,7 @@ func startNode(nodeID, port, role string, followers []string) {
 
 	} else {
 		followerPort := fmt.Sprintf("8%s", port[1:])
-		go replicationManager.StartFollowerHandler(followerPort)
+		replicationManager.StartFollowerHandler(followerPort)
 	}
 
 }
