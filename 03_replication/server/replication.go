@@ -31,6 +31,33 @@ func NewReplicationManager(role string, store *Store, leaderAddr address) *Repli
 	}
 }
 
+func (rm *ReplicationManager) Set(key, value string) {
+	rm.store.Set(key, value)
+	if rm.role == "leader" {
+		rm.ReplicateToFollowers("SET", key, value)
+	}
+}
+
+func (rm *ReplicationManager) Delete(key string) {
+	rm.store.Delete(key)
+	if rm.role == "leader" {
+		rm.ReplicateToFollowers("DELETE", key, "")
+	}
+}
+
+func (rm *ReplicationManager) Get(key string) (string, bool) {
+	return rm.store.Get(key)
+}
+
+func (rm *ReplicationManager) Exists(key string) bool {
+	_, exists := rm.store.Get(key)
+	return exists
+}
+
+func (rm *ReplicationManager) Keys() []string {
+	return rm.store.getAllKeys()
+}
+
 func (rm *ReplicationManager) pingFollower(conn net.Conn) bool {
 	conn.SetDeadline(time.Now().Add(150 * time.Millisecond))
 	defer conn.SetDeadline(time.Time{})
@@ -118,13 +145,15 @@ func (rm *ReplicationManager) ReplicateToFollowers(operation, key, value string)
 	command := fmt.Sprintf("REPLICATE %s %s %s\n", operation, key, value)
 
 	for address, follower := range rm.followers {
-		go func(r net.Conn) {
+		go func(address string, r net.Conn) {
 			_, err := r.Write([]byte(command))
 			if err != nil {
 				fmt.Printf("Failed to replicate to %s: %v, removed\n", address, err)
+				rm.mu.Lock()
+				defer rm.mu.Unlock()
 				delete(rm.followers, address)
 			}
-		}(follower)
+		}(address, follower)
 	}
 }
 
@@ -152,6 +181,8 @@ func (rm *ReplicationManager) StartFollowerHandler(port string) {
 			continue
 		}
 
+		// aspetto lunghezza log, se log < aspetto aggiornamento e rileggo tutto. di la, mi devo fermare
+
 		go rm.handleReplicationMessages(conn)
 	}
 }
@@ -160,7 +191,7 @@ func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 	defer conn.Close()
 
 	timeoutDuration := pingInterval * 2
-	// 1. Imposta la prima scadenza
+
 	conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 
 	scanner := bufio.NewScanner(conn)
@@ -197,7 +228,6 @@ func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 		}
 	}
 
-	// 3. Gestione dell'uscita: controlla se è terminato per timeout
 	if err := scanner.Err(); err != nil {
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			fmt.Println("Leader dichiarato MORTO: nessun messaggio/PING ricevuto entro il timeout!")

@@ -7,7 +7,7 @@ import (
 
 const serverPassword = "admin"
 
-func handleConnectionAsLeader(conn net.Conn, store *Store) {
+func handleConnectionAsLeader(conn net.Conn, replicationManager *ReplicationManager) {
 	defer conn.Close()
 
 	buffer := make([]byte, 1024)
@@ -63,7 +63,7 @@ func handleConnectionAsLeader(conn net.Conn, store *Store) {
 				conn.Write([]byte("ERROR: GET requires a key\n"))
 				continue
 			}
-			value, exists := store.Get(parts[1])
+			value, exists := replicationManager.Get(parts[1])
 			if !exists {
 				conn.Write([]byte("ERROR: Key not found\n"))
 				continue
@@ -77,7 +77,7 @@ func handleConnectionAsLeader(conn net.Conn, store *Store) {
 			}
 			key := parts[1]
 			val := strings.Join(parts[2:], " ")
-			store.Set(key, val)
+			replicationManager.Set(key, val)
 			conn.Write([]byte("OK\n"))
 
 		case "DELETE":
@@ -85,7 +85,7 @@ func handleConnectionAsLeader(conn net.Conn, store *Store) {
 				conn.Write([]byte("ERROR: DELETE requires a key\n"))
 				continue
 			}
-			store.Delete(parts[1])
+			replicationManager.Delete(parts[1])
 			conn.Write([]byte("OK\n"))
 
 		case "EXISTS":
@@ -93,15 +93,14 @@ func handleConnectionAsLeader(conn net.Conn, store *Store) {
 				conn.Write([]byte("ERROR: EXISTS requires a key\n"))
 				continue
 			}
-			_, exists := store.Get(parts[1])
-			if !exists {
+			if !replicationManager.Exists(parts[1]) {
 				conn.Write([]byte("NO\n"))
 				continue
 			}
 			conn.Write([]byte("YES\n"))
 
 		case "KEYS":
-			keys := store.getAllKeys()
+			keys := replicationManager.Keys()
 			if len(keys) == 0 {
 				conn.Write([]byte("(empty)\n"))
 				continue
