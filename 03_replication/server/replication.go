@@ -8,14 +8,14 @@ import (
 	"sync"
 )
 
-type Replica struct {
+type Follower struct {
 	address string
 	conn    net.Conn
 }
 
 type ReplicationManager struct {
 	role       string
-	replicas   []*Replica
+	followers  []*Follower
 	store      *Store
 	leaderAddr string
 	mu         sync.RWMutex
@@ -28,7 +28,7 @@ func NewReplicationManager(role string, store *Store) *ReplicationManager {
 	}
 }
 
-func (rm *ReplicationManager) AddReplica(addr string) error {
+func (rm *ReplicationManager) AddFollower(addr string) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
@@ -37,13 +37,13 @@ func (rm *ReplicationManager) AddReplica(addr string) error {
 		return err
 	}
 
-	replica := &Replica{
+	follower := &Follower{
 		address: addr,
 		conn:    conn,
 	}
 
-	rm.replicas = append(rm.replicas, replica)
-	fmt.Printf("Added replica: %s\n", addr)
+	rm.followers = append(rm.followers, follower)
+	fmt.Printf("Added follower: %s\n", addr)
 	return nil
 }
 
@@ -53,17 +53,17 @@ func (rm *ReplicationManager) ReplicateToFollowers(operation, key, value string)
 
 	command := fmt.Sprintf("REPLICATE %s %s %s\n", operation, key, value)
 
-	for _, replica := range rm.replicas {
-		go func(r *Replica) {
+	for _, follower := range rm.followers {
+		go func(r *Follower) {
 			_, err := r.conn.Write([]byte(command))
 			if err != nil {
 				fmt.Printf("Failed to replicate to %s: %v\n", r.address, err)
 			}
-		}(replica)
+		}(follower)
 	}
 }
 
-func (rm *ReplicationManager) StartFollower(port string) {
+func (rm *ReplicationManager) StartFollowerHandler(port string) {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		fmt.Println("Follower error starting:", err)
