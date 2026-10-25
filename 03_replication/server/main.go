@@ -6,7 +6,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 )
 
 type Store struct {
@@ -137,10 +136,8 @@ func startNode(nodeID, port, role string) {
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
-		fmt.Println("  go run demo.go <node-id> <port> <role>")
-		fmt.Println("Example:")
-		fmt.Println("  go run demo.go node1 leader")
-		fmt.Println("  go run demo.go node2 8081")
+		fmt.Println("  go run . node1 leader")
+		fmt.Println("  go run . node2 8081")
 		return
 	}
 

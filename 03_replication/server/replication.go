@@ -95,7 +95,7 @@ func (rm *ReplicationManager) findFollowers() {
 			}
 
 			msg := strings.TrimSpace(string(buf[:n]))
-			if msg != "I am a follower\n" {
+			if msg != "I am a follower" {
 				conn.Close()
 				continue
 			}
@@ -159,8 +159,15 @@ func (rm *ReplicationManager) StartFollowerHandler(port string) {
 func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 	defer conn.Close()
 
+	timeoutDuration := pingInterval * 2
+	// 1. Imposta la prima scadenza
+	conn.SetReadDeadline(time.Now().Add(timeoutDuration))
+
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
+		// 2. Rinnova la scadenza ogni volta che arriva un messaggio
+		conn.SetReadDeadline(time.Now().Add(timeoutDuration))
+
 		command := strings.TrimSpace(scanner.Text())
 		parts := strings.Split(command, " ")
 
@@ -188,5 +195,16 @@ func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 				rm.store.Delete(key)
 			}
 		}
+	}
+
+	// 3. Gestione dell'uscita: controlla se è terminato per timeout
+	if err := scanner.Err(); err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			fmt.Println("Leader dichiarato MORTO: nessun messaggio/PING ricevuto entro il timeout!")
+		} else {
+			fmt.Printf("Connessione con il leader interrotta: %v\n", err)
+		}
+	} else {
+		fmt.Println("Connessione chiusa dal leader (EOF)")
 	}
 }
