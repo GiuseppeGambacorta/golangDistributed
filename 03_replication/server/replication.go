@@ -4,47 +4,72 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
-type Follower struct {
-	address string
-	conn    net.Conn
-}
+type address = string
 
 type ReplicationManager struct {
 	role       string
-	followers  []*Follower
+	followers  map[address]net.Conn // net.Conn è un'interfaccia, non serve *net.Conn
 	store      *Store
-	leaderAddr string
+	leaderAddr address
 	mu         sync.RWMutex
 }
 
-func NewReplicationManager(role string, store *Store) *ReplicationManager {
+func NewReplicationManager(role string, store *Store, leaderAddr address) *ReplicationManager {
 	return &ReplicationManager{
-		role:  role,
-		store: store,
+		role:       role,
+		store:      store,
+		leaderAddr: leaderAddr,
+		followers:  make(map[address]net.Conn),
 	}
 }
 
-func (rm *ReplicationManager) AddFollower(addr string) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
+func (rm *ReplicationManager) findFollowers() {
+	localhost := "localhost:"
 
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return err
+	for i := 8001; i <= 8100; i++ {
+		actualAddress := localhost + strconv.Itoa(i)
+
+		if actualAddress == rm.leaderAddr {
+			continue
+		}
+
+		rm.mu.RLock()
+		_, alreadyTracked := rm.followers[actualAddress]
+		rm.mu.RUnlock()
+
+		if alreadyTracked {
+			continue
+		}
+
+		conn, err := net.DialTimeout("tcp", actualAddress, 150*time.Millisecond)
+		if err != nil {
+			continue
+		}
+
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			conn.Close()
+			continue
+		}
+
+		msg := strings.TrimSpace(string(buf[:n]))
+		if msg != "I am a follower" {
+			conn.Close()
+			continue
+		}
+
+		fmt.Printf("Follower %s is up\n", actualAddress)
+		rm.mu.Lock()
+		rm.followers[actualAddress] = conn
+		rm.mu.Unlock()
 	}
-
-	follower := &Follower{
-		address: addr,
-		conn:    conn,
-	}
-
-	rm.followers = append(rm.followers, follower)
-	fmt.Printf("Added follower: %s\n", addr)
-	return nil
 }
 
 func (rm *ReplicationManager) ReplicateToFollowers(operation, key, value string) {
@@ -53,11 +78,12 @@ func (rm *ReplicationManager) ReplicateToFollowers(operation, key, value string)
 
 	command := fmt.Sprintf("REPLICATE %s %s %s\n", operation, key, value)
 
-	for _, follower := range rm.followers {
-		go func(r *Follower) {
-			_, err := r.conn.Write([]byte(command))
+	for address, follower := range rm.followers {
+		go func(r net.Conn) {
+			_, err := r.Write([]byte(command))
 			if err != nil {
-				fmt.Printf("Failed to replicate to %s: %v\n", r.address, err)
+				fmt.Printf("Failed to replicate to %s: %v, removed\n", address, err)
+				delete(rm.followers, address)
 			}
 		}(follower)
 	}
@@ -80,11 +106,11 @@ func (rm *ReplicationManager) StartFollowerHandler(port string) {
 			continue
 		}
 
-		go rm.handleReplicationConnection(conn)
+		go rm.handleReplicationMessages(conn)
 	}
 }
 
-func (rm *ReplicationManager) handleReplicationConnection(conn net.Conn) {
+func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)

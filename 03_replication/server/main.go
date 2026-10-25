@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"sync"
-	"time"
 )
 
 type Store struct {
@@ -108,7 +108,7 @@ func startServer(port, nodeID string, store *Store) {
 	}
 }
 
-func startNode(nodeID, port, role string, followers []string) {
+func startNode(nodeID, port, role string) {
 	fmt.Printf("Starting %s node %s on port %s\n", role, nodeID, port)
 
 	walPath := fmt.Sprintf("wal-%s.log", nodeID)
@@ -119,17 +119,11 @@ func startNode(nodeID, port, role string, followers []string) {
 	}
 	defer store.Close()
 
-	replicationManager := NewReplicationManager(role, store)
+	replicationManager := NewReplicationManager(role, store, "localhost:8080")
 	store.replicationManager = replicationManager
 
 	if role == "leader" {
-		for _, follower := range followers {
-			time.Sleep(1 * time.Second)
-			err := replicationManager.AddFollower(follower)
-			if err != nil {
-				fmt.Printf("Failed to connect to follower %s: %v\n", follower, err)
-			}
-		}
+		go replicationManager.findFollowers()
 		startServer(port, nodeID, store)
 
 	} else {
@@ -140,23 +134,30 @@ func startNode(nodeID, port, role string, followers []string) {
 }
 
 func main() {
-	if len(os.Args) < 4 {
+	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
-		fmt.Println("  go run demo.go <node-id> <port> <role> [follower-addr]")
+		fmt.Println("  go run demo.go <node-id> <port> <role>")
 		fmt.Println("Example:")
-		fmt.Println("  go run demo.go node1 8080 leader localhost:8081")
-		fmt.Println("  go run demo.go node2 8081 follower")
+		fmt.Println("  go run demo.go node1 leader")
+		fmt.Println("  go run demo.go node2 8081")
 		return
 	}
 
 	nodeID := os.Args[1]
-	port := os.Args[2]
-	role := os.Args[3]
-
-	var followers []string
-	if role == "leader" && len(os.Args) > 4 {
-		followers = os.Args[4:]
+	secondArgoment := os.Args[2]
+	if secondArgoment == "leader" {
+		startNode(nodeID, "8000", secondArgoment)
 	}
 
-	startNode(nodeID, port, role, followers)
+	port, err := strconv.Atoi(secondArgoment)
+	if err != nil {
+		if port >= 8001 && port <= 8100 {
+			startNode(nodeID, secondArgoment, secondArgoment)
+		} else {
+			fmt.Println("Invalid port, must be in 8001 and <= 8100")
+			return
+		}
+
+	}
+
 }
