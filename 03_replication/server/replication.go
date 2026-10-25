@@ -12,6 +12,8 @@ import (
 
 type address = string
 
+const pingInterval = time.Duration(2) * time.Second
+
 type ReplicationManager struct {
 	role       string
 	followers  map[address]net.Conn // net.Conn è un'interfaccia, non serve *net.Conn
@@ -30,7 +32,6 @@ func NewReplicationManager(role string, store *Store, leaderAddr address) *Repli
 }
 
 func (rm *ReplicationManager) pingFollower(conn net.Conn) bool {
-
 	conn.SetDeadline(time.Now().Add(150 * time.Millisecond))
 	defer conn.SetDeadline(time.Time{})
 
@@ -47,11 +48,11 @@ func (rm *ReplicationManager) pingFollower(conn net.Conn) bool {
 	return true
 }
 
-func (rm *ReplicationManager) findFollowers(interval time.Duration) {
+func (rm *ReplicationManager) findFollowers() {
 	localhost := "localhost:"
-	fmt.Printf("Leader %s: starting discovery service every %v\n", rm.leaderAddr, interval)
+	fmt.Printf("Leader %s: starting discovery service every %v\n", rm.leaderAddr, pingInterval)
 
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -94,7 +95,7 @@ func (rm *ReplicationManager) findFollowers(interval time.Duration) {
 			}
 
 			msg := strings.TrimSpace(string(buf[:n]))
-			if msg != "I am a follower" {
+			if msg != "I am a follower\n" {
 				conn.Close()
 				continue
 			}
@@ -144,7 +145,7 @@ func (rm *ReplicationManager) StartFollowerHandler(port string) {
 			continue
 		}
 
-		_, err = conn.Write([]byte("I am a follower"))
+		_, err = conn.Write([]byte("I am a follower\n"))
 		if err != nil {
 			fmt.Println("Follower error sending handshake:", err)
 			conn.Close()

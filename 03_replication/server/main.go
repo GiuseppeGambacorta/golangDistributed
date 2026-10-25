@@ -124,7 +124,7 @@ func startNode(nodeID, port, role string) {
 	store.replicationManager = replicationManager
 
 	if role == "leader" {
-		go replicationManager.findFollowers(time.Second * 2)
+		go replicationManager.findFollowers()
 		startServer(port, nodeID, store)
 
 	} else {
