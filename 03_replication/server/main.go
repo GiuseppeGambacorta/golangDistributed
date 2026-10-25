@@ -319,12 +319,14 @@ func startNode(nodeID, port, role string, followers []string) {
 				fmt.Printf("Failed to connect to follower %s: %v\n", follower, err)
 			}
 		}
+
 	} else {
 		followerPort := fmt.Sprintf("8%s", port[1:])
 		go replicationManager.StartFollower(followerPort)
 	}
 
 	startServer(port, nodeID, store)
+
 }
 
 func main() {
