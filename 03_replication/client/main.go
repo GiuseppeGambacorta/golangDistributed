@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	serverAddr := "localhost:8080"
+	serverAddr := "localhost:8000"
 
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type Store struct {
@@ -123,7 +124,7 @@ func startNode(nodeID, port, role string) {
 	store.replicationManager = replicationManager
 
 	if role == "leader" {
-		go replicationManager.findFollowers()
+		go replicationManager.findFollowers(time.Second * 2)
 		startServer(port, nodeID, store)
 
 	} else {

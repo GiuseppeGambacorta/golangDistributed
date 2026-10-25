@@ -29,46 +29,84 @@ func NewReplicationManager(role string, store *Store, leaderAddr address) *Repli
 	}
 }
 
-func (rm *ReplicationManager) findFollowers() {
+func (rm *ReplicationManager) pingFollower(conn net.Conn) bool {
+
+	conn.SetDeadline(time.Now().Add(150 * time.Millisecond))
+	defer conn.SetDeadline(time.Time{})
+
+	if _, err := conn.Write([]byte("PING\n")); err != nil {
+		return false
+	}
+
+	reader := bufio.NewReader(conn)
+	resp, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(resp) != "PONG" {
+		return false
+	}
+
+	return true
+}
+
+func (rm *ReplicationManager) findFollowers(interval time.Duration) {
 	localhost := "localhost:"
+	fmt.Printf("Leader %s: starting discovery service every %v\n", rm.leaderAddr, interval)
 
-	for i := 8001; i <= 8100; i++ {
-		actualAddress := localhost + strconv.Itoa(i)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		if actualAddress == rm.leaderAddr {
-			continue
+	for range ticker.C {
+		fmt.Printf("Leader %s: starting discovery service\n", rm.leaderAddr)
+		for i := 8001; i <= 8100; i++ {
+			actualAddress := localhost + strconv.Itoa(i)
+
+			if actualAddress == rm.leaderAddr {
+				continue
+			}
+
+			rm.mu.RLock()
+			existingConn, alreadyTracked := rm.followers[actualAddress]
+			rm.mu.RUnlock()
+
+			if alreadyTracked {
+				// Controllo di salute (Heartbeat) sulla connessione esistente
+				if !rm.pingFollower(existingConn) {
+					fmt.Printf("Follower %s non risponde al ping: rimosso\n", actualAddress)
+					rm.mu.Lock()
+					existingConn.Close()
+					delete(rm.followers, actualAddress)
+					rm.mu.Unlock()
+				}
+				continue
+			}
+
+			conn, err := net.DialTimeout("tcp", actualAddress, 100*time.Millisecond)
+			if err != nil {
+				continue
+			}
+
+			conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			if err != nil {
+				conn.Close()
+				continue
+			}
+
+			msg := strings.TrimSpace(string(buf[:n]))
+			if msg != "I am a follower" {
+				conn.Close()
+				continue
+			}
+
+			// 3. Reset deadline per l'uso futuro del socket
+			conn.SetDeadline(time.Time{})
+
+			fmt.Printf("Follower %s is up\n", actualAddress)
+			rm.mu.Lock()
+			rm.followers[actualAddress] = conn
+			rm.mu.Unlock()
 		}
-
-		rm.mu.RLock()
-		_, alreadyTracked := rm.followers[actualAddress]
-		rm.mu.RUnlock()
-
-		if alreadyTracked {
-			continue
-		}
-
-		conn, err := net.DialTimeout("tcp", actualAddress, 150*time.Millisecond)
-		if err != nil {
-			continue
-		}
-
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			conn.Close()
-			continue
-		}
-
-		msg := strings.TrimSpace(string(buf[:n]))
-		if msg != "I am a follower" {
-			conn.Close()
-			continue
-		}
-
-		fmt.Printf("Follower %s is up\n", actualAddress)
-		rm.mu.Lock()
-		rm.followers[actualAddress] = conn
-		rm.mu.Unlock()
 	}
 }
 
@@ -106,6 +144,13 @@ func (rm *ReplicationManager) StartFollowerHandler(port string) {
 			continue
 		}
 
+		_, err = conn.Write([]byte("I am a follower"))
+		if err != nil {
+			fmt.Println("Follower error sending handshake:", err)
+			conn.Close()
+			continue
+		}
+
 		go rm.handleReplicationMessages(conn)
 	}
 }
@@ -118,11 +163,16 @@ func (rm *ReplicationManager) handleReplicationMessages(conn net.Conn) {
 		command := strings.TrimSpace(scanner.Text())
 		parts := strings.Split(command, " ")
 
-		if len(parts) < 3 {
+		if len(parts) == 0 || parts[0] == "" {
 			continue
 		}
 
-		if parts[0] == "REPLICATE" {
+		if parts[0] == "PING" {
+			conn.Write([]byte("PONG\n"))
+			continue
+		}
+
+		if parts[0] == "REPLICATE" && len(parts) >= 3 {
 			operation := parts[1]
 			key := parts[2]
 			value := ""
