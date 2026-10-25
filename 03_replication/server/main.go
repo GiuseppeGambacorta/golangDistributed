@@ -150,7 +150,7 @@ func main() {
 	}
 
 	port, err := strconv.Atoi(secondArgoment)
-	if err != nil {
+	if err == nil {
 		if port >= 8001 && port <= 8100 {
 			startNode(nodeID, secondArgoment, secondArgoment)
 		} else {
