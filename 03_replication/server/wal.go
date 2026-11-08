@@ -8,10 +8,17 @@ import (
 	"sync"
 )
 
+const (
+	entryLength  = 4
+	operationPos = 1
+	keyPos       = 2
+)
+
 type WAL struct {
-	file    *os.File
-	mu      sync.Mutex
-	walPath string
+	file      *os.File
+	mu        sync.Mutex
+	walPath   string
+	walLength int
 }
 
 func NewWAL(path string) (*WAL, error) {
@@ -30,7 +37,9 @@ func (w *WAL) WriteEntry(operation, key, value string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	entry := fmt.Sprintf("%s %s %s\n", operation, key, value)
+	w.walLength++
+
+	entry := fmt.Sprintf("%d %s %s %s\n", w.walLength, operation, key, value)
 	_, err := w.file.WriteString(entry)
 	if err != nil {
 		return err
@@ -53,24 +62,23 @@ func ReplayWAL(path string, store *Store) error {
 	}
 	defer file.Close()
 
+	store.wal.walLength = 0
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		parts := strings.Split(line, " ")
 
-		if len(parts) < 2 {
+		if len(parts) < entryLength {
 			continue
 		}
+		store.wal.walLength++
 
-		operation := parts[0]
-		key := parts[1]
+		operation := parts[operationPos]
+		key := parts[keyPos]
 
 		switch operation {
 		case "SET":
-			value := ""
-			if len(parts) >= 3 {
-				value = strings.Join(parts[2:], " ")
-			}
+			value := strings.Join(parts[keyPos+1:], " ")
 			store.mu.Lock()
 			store.data[key] = value
 			store.mu.Unlock()
