@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Distribuiti/progLog/StructureDataWithProtobuf/api/v1"
 	"bytes"
 	"errors"
 	"sync"
@@ -41,9 +42,6 @@ func (l *Log) Read(offset uint64) (Record, error) {
 	return record, nil
 }
 
-type Record struct {
-	Value  []byte `json:"value"`
-	Offset uint64 `json:"offset"`
-}
+type Record = logv1.Record
 
 var ErrOffsetNotFound = errors.New("offset not found")
