@@ -1,0 +1,15 @@
+{
+  "CN": "Proglog Test CA",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "IT",
+      "L": "Rome",
+      "O": "Proglog",
+      "OU": "Security"
+    }
+  ]
+}
