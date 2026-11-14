@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "log-cluster.fullname" . }}-config
+  labels:
+    {{- include "log-cluster.labels" . | nindent 4 }}
+data:
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    node_id="${POD_NAME}"
+    rpc_advertise="${POD_NAME}.${HEADLESS_SERVICE}.${POD_NAMESPACE}.svc.cluster.local:{{ .Values.service.rpcPort }}"
+    raft_advertise="${POD_NAME}.${HEADLESS_SERVICE}.${POD_NAMESPACE}.svc.cluster.local:{{ .Values.service.raftPort }}"
+    common_args="-node-id ${node_id} -data /var/lib/log -rpc-addr 0.0.0.0:{{ .Values.service.rpcPort }} -rpc-advertise ${rpc_advertise} -raft-addr 0.0.0.0:{{ .Values.service.raftPort }} -raft-advertise ${raft_advertise} -http-addr 0.0.0.0:{{ .Values.service.httpPort }}"
+    if [ "${BOOTSTRAP_ENABLED}" = "true" ] && [ "${POD_NAME}" = "${STATEFULSET_NAME}-0" ]; then
+      exec /usr/local/bin/agent ${common_args} -bootstrap
+    fi
+    join_endpoint="http://${STATEFULSET_NAME}-0.${HEADLESS_SERVICE}.${POD_NAMESPACE}.svc.cluster.local:{{ .Values.service.httpPort }}/join"
+    exec /usr/local/bin/agent ${common_args} \
+      -join-id "${node_id}" -join-raft-addr "${raft_advertise}" \
+      -join-rpc-addr "${rpc_advertise}" -join-address "${join_endpoint}"

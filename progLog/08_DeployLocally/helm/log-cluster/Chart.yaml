@@ -1,0 +1,6 @@
+apiVersion: v2
+name: log-cluster
+description: Stateful Raft log cluster for chapter 08
+type: application
+version: 0.1.0
+appVersion: "08"

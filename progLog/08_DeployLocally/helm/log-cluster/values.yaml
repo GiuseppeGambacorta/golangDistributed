@@ -1,0 +1,24 @@
+replicaCount: 3
+
+image:
+  repository: chapter08-log
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  rpcPort: 8400
+  raftPort: 7400
+  httpPort: 8080
+
+storage:
+  size: 1Gi
+  className: ""
+
+bootstrap:
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000

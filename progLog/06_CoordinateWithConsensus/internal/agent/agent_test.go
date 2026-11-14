@@ -1,0 +1,86 @@
+package agent_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	api "Distribuiti/progLog/06_CoordinateWithConsensus/api/v1"
+	"Distribuiti/progLog/06_CoordinateWithConsensus/internal/agent"
+	raft "github.com/hashicorp/raft"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+)
+
+func TestSingleNodeBecomesLeaderAndCommits(t *testing.T) {
+	node := newNode(t, "node-0", true)
+	defer node.Shutdown()
+
+	require.NoError(t, node.WaitForLeader(5*time.Second))
+	require.Equal(t, raft.Leader, node.State())
+
+	client, closeClient := newClient(t, node.RPCAddr())
+	defer closeClient()
+	response, err := client.Produce(context.Background(), &api.ProduceRequest{
+		Record: &api.Record{Value: []byte("committed")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), response.Offset)
+	read, err := client.Consume(context.Background(), &api.ConsumeRequest{Offset: response.Offset})
+	require.NoError(t, err)
+	require.Equal(t, []byte("committed"), read.Record.Value)
+}
+
+func TestCommittedAppendIsAppliedOnSecondNode(t *testing.T) {
+	leader := newNode(t, "node-0", true)
+	defer leader.Shutdown()
+	require.NoError(t, leader.WaitForLeader(5*time.Second))
+
+	follower := newNode(t, "node-1", false)
+	defer follower.Shutdown()
+	require.NoError(t, leader.AddVoter("node-1", follower.RaftAddr()))
+	require.NoError(t, follower.WaitForLeader(5*time.Second))
+
+	client, closeClient := newClient(t, leader.RPCAddr())
+	defer closeClient()
+	response, err := client.Produce(context.Background(), &api.ProduceRequest{
+		Record: &api.Record{Value: []byte("replicated")},
+	})
+	require.NoError(t, err)
+
+	followerClient, closeFollowerClient := newClient(t, follower.RPCAddr())
+	defer closeFollowerClient()
+	require.Eventually(t, func() bool {
+		read, readErr := followerClient.Consume(
+			context.Background(),
+			&api.ConsumeRequest{Offset: response.Offset},
+		)
+		return readErr == nil && string(read.Record.Value) == "replicated"
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
+func newNode(t *testing.T, id string, bootstrap bool) *agent.Agent {
+	t.Helper()
+	config := raft.DefaultConfig()
+	config.HeartbeatTimeout = 50 * time.Millisecond
+	config.ElectionTimeout = 150 * time.Millisecond
+	config.LeaderLeaseTimeout = 50 * time.Millisecond
+	config.CommitTimeout = 10 * time.Millisecond
+	node, err := agent.New(agent.Config{
+		NodeID:       id,
+		DataDir:      t.TempDir(),
+		RPCBindAddr:  "127.0.0.1:0",
+		RaftBindAddr: "127.0.0.1:0",
+		Bootstrap:    bootstrap,
+		RaftConfig:   config,
+	})
+	require.NoError(t, err)
+	return node
+}
+
+func newClient(t *testing.T, address string) (api.LogClient, func()) {
+	t.Helper()
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	require.NoError(t, err)
+	return api.NewLogClient(conn), func() { _ = conn.Close() }
+}

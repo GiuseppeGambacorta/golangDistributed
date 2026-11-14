@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package log.v1;
+
+option go_package = "Distribuiti/progLog/08_DeployLocally/api/v1;logv1";
+
+service Discovery {
+  rpc GetServers(GetServersRequest) returns (GetServersResponse) {}
+}
+
+message GetServersRequest {}
+
+message Server {
+  string id = 1;
+  string raft_address = 2;
+  string rpc_address = 3;
+  bool leader = 4;
+  bool voter = 5;
+}
+
+message GetServersResponse {
+  repeated Server servers = 1;
+  string leader_id = 2;
+  string leader_address = 3;
+}
